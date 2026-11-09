@@ -26,9 +26,22 @@ URL_NEGATION_PATTERN = re.compile(r"\b(?:never|not|don['\u2019]?t)\b", re.IGNORE
 logger = logging.getLogger(__name__)
 
 
+_RESERVED_PLACEHOLDER_TLDS = frozenset({'example', 'invalid', 'localhost', 'test', 'local'})
+_RESERVED_PLACEHOLDER_DOMAINS = frozenset({
+	'example.com',
+	'example.net',
+	'example.org',
+	'example.edu',
+	'yourdomain.com',
+	'your-domain.com',
+	'placeholder.com',
+})
+
+
 def is_placeholder_url(url: str) -> bool:
-	"""Return True for mock placeholder hostnames like https://XXX.XX."""
-	parsed_url = urlparse(url if '://' in url else f'https://{url}')
+	"""Return True for mock placeholder hostnames like https://XXX.XX or RFC reserved domains."""
+	raw = url.strip().strip('<>"\'`')
+	parsed_url = urlparse(raw if '://' in raw else f'https://{raw}')
 	hostname = (parsed_url.hostname or '').strip('.').lower()
 	if not hostname:
 		return False
@@ -37,16 +50,36 @@ def is_placeholder_url(url: str) -> bool:
 	if labels and labels[0] == 'www':
 		labels = labels[1:]
 
-	return len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels)
+	if not labels:
+		return False
+
+	# Hostnames like xxx.xx or xxxx.xxxx
+	if len(labels) >= 2 and all(re.fullmatch(r'x+', label) for label in labels):
+		return True
+
+	# RFC 2606 / RFC 6761 reserved special-use TLDs (.test, .example, .invalid, .localhost)
+	if labels[-1] in _RESERVED_PLACEHOLDER_TLDS:
+		return True
+
+	# Full domain match for well-known documentation/example domains
+	domain = '.'.join(labels[-2:]) if len(labels) >= 2 else labels[0]
+	if domain in _RESERVED_PLACEHOLDER_DOMAINS or hostname in _RESERVED_PLACEHOLDER_DOMAINS:
+		return True
+
+	return False
 
 
-_TRAILING_PROSE_PUNCTUATION = frozenset('.,;:!?([')
-_CLOSING_TO_OPENING_BRACKET = {')': '(', ']': '['}
+_TRAILING_PROSE_PUNCTUATION = frozenset('.,;:!?([\'"`>')
+_CLOSING_TO_OPENING_BRACKET = {')': '(', ']': '[', '>': '<'}
 
 
 def sanitize_url_candidate(url: str) -> str:
 	"""Normalize a URL candidate captured from prose before auto-navigation."""
-	candidate = url.strip()
+	candidate = url.strip().strip('`')
+	# Strip wrapping angle brackets <http...>
+	if candidate.startswith('<') and candidate.endswith('>'):
+		candidate = candidate[1:-1].strip()
+
 	# Some benchmark tasks arrive with escaped newlines in prose, e.g.
 	# "https://example.com/search.\\n2. Next step". Those are task text,
 	# not part of the URL.
@@ -57,7 +90,7 @@ def sanitize_url_candidate(url: str) -> str:
 	# prose when it has no opener inside the candidate, as in "(see https://x.com/a)".
 	# Bracket totals are counted once and decremented as characters are trimmed, so
 	# a candidate ending in many brackets stays linear.
-	bracket_counts = {bracket: candidate.count(bracket) for bracket in '()[]'}
+	bracket_counts = {bracket: candidate.count(bracket) for bracket in '()[]<>'}
 	end = len(candidate)
 	while end:
 		last_char = candidate[end - 1]
