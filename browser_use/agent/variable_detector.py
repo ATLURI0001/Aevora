@@ -66,11 +66,14 @@ def _detect_in_action(
 			if field not in params:
 				continue
 
-			value = params[field]
-			if not isinstance(value, str) or not value.strip():
+			raw_value = params[field]
+			if not isinstance(raw_value, str):
+				continue
+			value = raw_value.strip()
+			if not value:
 				continue
 
-			# Skip if we already detected this exact value
+			# Skip if we already detected this normalized value
 			if value in detected_values:
 				continue
 
@@ -217,10 +220,13 @@ def _detect_from_value_pattern(value: str) -> tuple[str, str | None] | None:
 	Patterns:
 	- Email: contains @ and . with valid format
 	- Phone: digits with separators, 10+ chars
-	- Date: YYYY-MM-DD format
-	- Name: Capitalized word(s), 2-30 chars, letters only
+	- Date: YYYY-MM-DD or YYYY/MM/DD format
+	- Name: Capitalized word(s), 2-30 chars, letters/spaces/hyphens/apostrophes
 	- Number: Pure digits, 1-9 chars
 	"""
+	value = value.strip()
+	if not value:
+		return None
 
 	# Email detection - most specific first
 	if '@' in value and '.' in value:
@@ -228,19 +234,18 @@ def _detect_from_value_pattern(value: str) -> tuple[str, str | None] | None:
 		if re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', value):
 			return ('email', 'email')
 
-	# Phone detection (digits with separators, 10+ chars)
-	if re.match(r'^[\d\s\-\(\)\+]+$', value):
-		# Remove separators and check length
-		digits_only = re.sub(r'[\s\-\(\)\+]', '', value)
+	# Phone detection (digits with separators including dots, 10+ digits)
+	if re.match(r'^[\d\s\-\(\)\+\.]+$', value):
+		digits_only = re.sub(r'[\s\-\(\)\+\.]', '', value)
 		if len(digits_only) >= 10:
 			return ('phone', 'phone')
 
-	# Date detection (YYYY-MM-DD or similar)
-	if re.match(r'^\d{4}-\d{2}-\d{2}$', value):
+	# Date detection (YYYY-MM-DD or YYYY/MM/DD)
+	if re.match(r'^\d{4}[-/]\d{2}[-/]\d{2}$', value):
 		return ('date', 'date')
 
-	# Name detection (capitalized, only letters/spaces, 2-30 chars)
-	if value and value[0].isupper() and value.replace(' ', '').replace('-', '').isalpha() and 2 <= len(value) <= 30:
+	# Name detection (capitalized, letters/spaces/hyphens/apostrophes, 2-30 chars)
+	if value[0].isupper() and value.replace(' ', '').replace('-', '').replace("'", '').isalpha() and 2 <= len(value) <= 30:
 		words = value.split()
 		if len(words) == 1:
 			return ('first_name', None)

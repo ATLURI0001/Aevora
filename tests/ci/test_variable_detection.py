@@ -406,3 +406,20 @@ def test_detect_variables_multiple_types():
 	assert result['email'].original_value == 'test@example.com'
 	assert result['first_name'].original_value == 'John'
 	assert result['date'].original_value == '1990-01-01'
+
+
+def test_detect_variables_whitespace_dedup_and_extended_formats():
+	"""Test that whitespace-padded duplicates deduplicate and extended formats match."""
+	history = create_mock_history(
+		[
+			({'input': {'index': 1, 'text': '  alice@example.com '}}, None),
+			({'input': {'index': 2, 'text': 'alice@example.com'}}, None),
+			({'input': {'index': 3, 'text': '555.123.4567'}}, None),
+			({'input': {'index': 4, 'text': "Claire O'Connor"}}, None),
+		]
+	)
+	result = detect_variables_in_history(history)  # type: ignore[arg-type]
+	assert result['email'].original_value == 'alice@example.com'
+	assert 'email_2' not in result
+	assert result['phone'].original_value == '555.123.4567'
+	assert result['full_name'].original_value == "Claire O'Connor"
