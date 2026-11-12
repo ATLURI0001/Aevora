@@ -76,11 +76,10 @@ class CreateAgentOutputFileEvent(BaseEvent):
 		"""Validate base64 file content size."""
 		if v is None:
 			return v
-		# Remove data URL prefix if present
-		if ',' in v:
-			v = v.split(',')[1]
+		# Strip data URL prefix only when an actual data URI header is present
+		payload = v.split(',', 1)[1] if v.startswith('data:') and ',' in v else v
 		# Estimate decoded size (base64 is ~33% larger)
-		estimated_size = len(v) * 3 / 4
+		estimated_size = len(payload) * 3 / 4
 		if estimated_size > MAX_FILE_CONTENT_SIZE:
 			raise ValueError(f'File content exceeds maximum size of {MAX_FILE_CONTENT_SIZE / 1024 / 1024}MB')
 		return v
@@ -137,7 +136,7 @@ class CreateAgentStepEvent(BaseEvent):
 			return v
 		# It's base64 data, check size
 		if ',' in v:
-			base64_part = v.split(',')[1]
+			base64_part = v.split(',', 1)[1]
 			estimated_size = len(base64_part) * 3 / 4
 			if estimated_size > MAX_FILE_CONTENT_SIZE:
 				raise ValueError(f'Screenshot content exceeds maximum size of {MAX_FILE_CONTENT_SIZE / 1024 / 1024}MB')
