@@ -123,29 +123,38 @@ _groq_bad_request_error: type | None = None
 
 def collect_sensitive_data_values(sensitive_data: dict[str, str | dict[str, str]] | None) -> dict[str, str]:
 	"""Flatten legacy and domain-scoped sensitive data into placeholder -> value mappings."""
-	if not sensitive_data:
+	if not sensitive_data or not isinstance(sensitive_data, dict):
 		return {}
 
 	sensitive_values: dict[str, str] = {}
 	for key_or_domain, content in sensitive_data.items():
 		if isinstance(content, dict):
 			for key, val in content.items():
-				if val:
-					sensitive_values[key] = val
-		elif content:
-			sensitive_values[key_or_domain] = content
+				if isinstance(val, str) and val:
+					sensitive_values[str(key)] = val
+		elif isinstance(content, str) and content:
+			sensitive_values[str(key_or_domain)] = content
 
 	return sensitive_values
 
 
 def redact_sensitive_string(value: str, sensitive_values: dict[str, str]) -> str:
 	"""Replace sensitive values with placeholders, longest matches first to avoid partial leaks."""
-	if not sensitive_values:
+	if not sensitive_values or not isinstance(value, str) or not value:
+		return value
+
+	# Filter out empty or non-string secrets to avoid matching empty strings between every character
+	valid_secrets = {}
+	for key, secret in sensitive_values.items():
+		if isinstance(secret, str) and secret:
+			valid_secrets[str(key)] = secret
+
+	if not valid_secrets:
 		return value
 
 	# Build a lookup from secret text → key name, longest secrets first so
 	# the regex alternation prefers the longest match.
-	sorted_items = sorted(sensitive_values.items(), key=lambda item: len(item[1]), reverse=True)
+	sorted_items = sorted(valid_secrets.items(), key=lambda item: len(item[1]), reverse=True)
 	secret_to_key = {secret: key for key, secret in sorted_items}
 
 	# Single-pass replacement: each position in the string is consumed at

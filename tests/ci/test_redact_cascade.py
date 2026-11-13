@@ -46,3 +46,33 @@ def test_multiple_occurrences():
 	sensitive = {'tok': 'xyz'}
 	result = redact_sensitive_string('xyz-xyz-xyz', sensitive)
 	assert result == '<secret>tok</secret>-<secret>tok</secret>-<secret>tok</secret>'
+
+
+def test_empty_or_non_string_secrets_ignored():
+	"""Empty, whitespace-only, or None secret values must not match empty boundaries."""
+	sensitive = {'empty': '', 'none_val': None, 'valid': 'hello'}
+	result = redact_sensitive_string('hello world', sensitive)
+	assert result == '<secret>valid</secret> world'
+
+
+def test_non_string_or_empty_input_value():
+	"""Non-string or empty input strings return unchanged without error."""
+	assert redact_sensitive_string('', {'key': 'secret'}) == ''
+	assert redact_sensitive_string(None, {'key': 'secret'}) is None
+
+
+def test_collect_sensitive_data_values_filters_non_strings():
+	"""collect_sensitive_data_values properly drops empty and non-string values."""
+	from browser_use.utils import collect_sensitive_data_values
+	data = {
+		'global_empty': '',
+		'global_val': 'secret1',
+		'domain': {
+			'empty_inner': '',
+			'inner_val': 'secret2',
+			'int_val': 123,
+		},
+		'invalid': None,
+	}
+	collected = collect_sensitive_data_values(data)
+	assert collected == {'global_val': 'secret1', 'inner_val': 'secret2'}
