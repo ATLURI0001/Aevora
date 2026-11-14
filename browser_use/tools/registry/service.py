@@ -464,34 +464,44 @@ class Registry(Generic[Context]):
 		# Filter out empty values
 		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
 
-		def recursively_replace_secrets(value: str | dict | list | tuple) -> str | dict | list | tuple:
+		def recursively_replace_secrets(value: Any) -> Any:
 			if isinstance(value, str):
+				# Helper to extract secret string from SecretStr or arbitrary types
+				def _extract_str(val: Any) -> str:
+					if hasattr(val, 'get_secret_value'):
+						return str(val.get_secret_value())
+					return str(val)
+
 				# 1. Handle tagged secrets: <secret>label</secret>
 				matches = secret_pattern.findall(value)
 				for placeholder in matches:
-					if placeholder in applicable_secrets:
+					target_key = placeholder.strip()
+					if target_key in applicable_secrets:
+						raw_val = applicable_secrets[target_key]
 						# generate a totp code if secret is suffixed with bu_2fa_code
-						if placeholder.endswith('bu_2fa_code'):
-							totp = pyotp.TOTP(applicable_secrets[placeholder], digits=6)
-							replacement_value = totp.now()
+						if target_key.endswith('bu_2fa_code'):
+							totp = pyotp.TOTP(_extract_str(raw_val), digits=6)
+							replacement_value = str(totp.now())
 						else:
-							replacement_value = applicable_secrets[placeholder]
+							replacement_value = _extract_str(raw_val)
 
 						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
-						replaced_placeholders.add(placeholder)
+						replaced_placeholders.add(target_key)
 					else:
 						# Keep track of missing placeholders
-						all_missing_placeholders.add(placeholder)
+						all_missing_placeholders.add(target_key)
 
 				# 2. Handle literal secrets: "user_name" (no tags)
 				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
-				if value in applicable_secrets:
+				target_literal = value.strip()
+				if target_literal in applicable_secrets and value in applicable_secrets:
 					placeholder_name = value
+					raw_val = applicable_secrets[placeholder_name]
 					if placeholder_name.endswith('bu_2fa_code'):
-						totp = pyotp.TOTP(applicable_secrets[placeholder_name], digits=6)
-						value = totp.now()
+						totp = pyotp.TOTP(_extract_str(raw_val), digits=6)
+						value = str(totp.now())
 					else:
-						value = applicable_secrets[placeholder_name]
+						value = _extract_str(raw_val)
 					replaced_placeholders.add(placeholder_name)
 
 				return value
@@ -501,6 +511,10 @@ class Registry(Generic[Context]):
 				return [recursively_replace_secrets(v) for v in value]
 			elif isinstance(value, tuple):
 				return tuple(recursively_replace_secrets(v) for v in value)
+			elif isinstance(value, set):
+				return {recursively_replace_secrets(v) for v in value}
+			elif isinstance(value, frozenset):
+				return frozenset(recursively_replace_secrets(v) for v in value)
 			return value
 
 		params_dump = params.model_dump()
