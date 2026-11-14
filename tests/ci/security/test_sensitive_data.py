@@ -670,3 +670,27 @@ def test_history_filters_sensitive_data_inside_nested_lists(tmp_path):
 
 	assert 'token-123' not in saved, 'Sensitive value leaked into the saved history file'
 	assert saved.count('<secret>api_key</secret>') == 2
+
+
+def test_replace_sensitive_data_whitespace_and_non_str_types(registry):
+	"""Test that _replace_sensitive_data handles whitespace padding and SecretStr/int values"""
+	from pydantic import SecretStr
+
+	class MixedParams(BaseModel):
+		auth_header: str
+		pin_code: str
+
+	params = MixedParams(
+		auth_header='Bearer <secret>   user_token   </secret>',
+		pin_code='<secret> security_pin </secret>',
+	)
+
+	sensitive_data = {
+		'user_token': SecretStr('secret_token_abc_xyz'),
+		'security_pin': 987654,
+	}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+	assert result.auth_header == 'Bearer secret_token_abc_xyz'
+	assert result.pin_code == '987654'
+
