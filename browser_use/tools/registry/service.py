@@ -463,11 +463,18 @@ class Registry(Generic[Context]):
 
 		# Filter out empty values
 		applicable_secrets = {k: v for k, v in applicable_secrets.items() if v}
+		lower_case_secrets = {k.lower(): k for k in applicable_secrets}
 
 		def recursively_replace_secrets(value: Any) -> Any:
 			if isinstance(value, str):
-				# Helper to extract secret string from SecretStr or arbitrary types
+				# Helper to extract secret string from SecretStr, callable, or arbitrary types
 				def _extract_str(val: Any) -> str:
+					if callable(val) and not isinstance(val, type):
+						try:
+							val = val()
+						except Exception as e:
+							logger.warning(f'Error resolving callable secret: {e}')
+							return ''
 					if hasattr(val, 'get_secret_value'):
 						return str(val.get_secret_value())
 					return str(val)
@@ -476,26 +483,28 @@ class Registry(Generic[Context]):
 				matches = secret_pattern.findall(value)
 				for placeholder in matches:
 					target_key = placeholder.strip()
-					if target_key in applicable_secrets:
-						raw_val = applicable_secrets[target_key]
+					resolved_key = target_key if target_key in applicable_secrets else lower_case_secrets.get(target_key.lower())
+					if resolved_key and resolved_key in applicable_secrets:
+						raw_val = applicable_secrets[resolved_key]
 						# generate a totp code if secret is suffixed with bu_2fa_code
-						if target_key.endswith('bu_2fa_code'):
+						if resolved_key.endswith('bu_2fa_code'):
 							totp = pyotp.TOTP(_extract_str(raw_val), digits=6)
 							replacement_value = str(totp.now())
 						else:
 							replacement_value = _extract_str(raw_val)
 
 						value = value.replace(f'<secret>{placeholder}</secret>', replacement_value)
-						replaced_placeholders.add(target_key)
+						replaced_placeholders.add(resolved_key)
 					else:
 						# Keep track of missing placeholders
 						all_missing_placeholders.add(target_key)
 
 				# 2. Handle literal secrets: "user_name" (no tags)
-				# This handles cases where the LLM forgets to use tags but uses the exact placeholder name
+				# This handles cases where the LLM forgets to use tags but uses the placeholder name (with or without surrounding whitespace)
 				target_literal = value.strip()
-				if target_literal in applicable_secrets and value in applicable_secrets:
-					placeholder_name = value
+				resolved_literal = target_literal if target_literal in applicable_secrets else lower_case_secrets.get(target_literal.lower())
+				if resolved_literal and resolved_literal in applicable_secrets:
+					placeholder_name = resolved_literal
 					raw_val = applicable_secrets[placeholder_name]
 					if placeholder_name.endswith('bu_2fa_code'):
 						totp = pyotp.TOTP(_extract_str(raw_val), digits=6)

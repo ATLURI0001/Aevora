@@ -694,3 +694,27 @@ def test_replace_sensitive_data_whitespace_and_non_str_types(registry):
 	assert result.auth_header == 'Bearer secret_token_abc_xyz'
 	assert result.pin_code == '987654'
 
+
+def test_replace_sensitive_data_callable_and_case_resilience(registry):
+	"""Test that _replace_sensitive_data supports callables, untagged whitespace literals, and case insensitivity"""
+	class AuthParams(BaseModel):
+		header: str
+		literal_field: str
+		case_field: str
+
+	params = AuthParams(
+		header='Token <secret>dynamic_api_key</secret>',
+		literal_field='  dynamic_api_key  ',
+		case_field='<secret>DYNAMIC_API_KEY</secret>',
+	)
+
+	sensitive_data = {
+		'dynamic_api_key': lambda: 'dyn-key-9988',
+	}
+
+	result = registry._replace_sensitive_data(params, sensitive_data)
+	assert result.header == 'Token dyn-key-9988'
+	assert result.literal_field == 'dyn-key-9988'
+	assert result.case_field == 'dyn-key-9988'
+
+
