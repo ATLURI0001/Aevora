@@ -741,4 +741,29 @@ def test_history_filters_sensitive_data_inside_sets_and_frozensets():
 	assert 'super-secret-token' not in filtered_frozen['frozen_tokens']
 
 
+def test_history_filters_sensitive_data_inside_nested_basemodel():
+	"""AgentHistory._filter_sensitive_data_from_value should recursively filter secrets within nested Pydantic BaseModel instances."""
+	from pydantic import BaseModel
+	from browser_use.agent.views import AgentHistory
+	from browser_use.browser.views import BrowserStateHistory
+
+	class SubPayload(BaseModel):
+		auth_bearer: str
+		service_name: str
+
+	history_obj = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+	)
+	sensitive = {'auth_bearer': 'super-secret-bearer-99'}
+
+	payload = SubPayload(auth_bearer='Bearer super-secret-bearer-99', service_name='auth-service')
+	filtered = history_obj._filter_sensitive_data_from_value(payload, sensitive)
+	assert isinstance(filtered, SubPayload)
+	assert '<secret>auth_bearer</secret>' in filtered.auth_bearer
+	assert 'super-secret-bearer-99' not in filtered.auth_bearer
+	assert filtered.service_name == 'auth-service'
+
+
 
