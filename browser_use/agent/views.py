@@ -531,6 +531,10 @@ class AgentHistory(BaseModel):
 			return [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
 		if isinstance(value, tuple):
 			return tuple(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
+		if isinstance(value, set):
+			return {self._filter_sensitive_data_from_value(item, sensitive_data) for item in value}
+		if isinstance(value, frozenset):
+			return frozenset(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
 		return value
 
 	def _filter_sensitive_data_from_dict(

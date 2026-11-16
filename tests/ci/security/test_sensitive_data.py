@@ -718,3 +718,27 @@ def test_replace_sensitive_data_callable_and_case_resilience(registry):
 	assert result.case_field == 'dyn-key-9988'
 
 
+def test_history_filters_sensitive_data_inside_sets_and_frozensets():
+	"""AgentHistory._filter_sensitive_data_from_value should filter secrets inside set and frozenset collections."""
+	from browser_use.agent.views import AgentHistory
+	from browser_use.browser.views import BrowserStateHistory
+
+	history_obj = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+	)
+	sensitive = {'api_key': 'super-secret-token'}
+
+	data_with_set = {'active_tokens': {'super-secret-token', 'public-id'}}
+	filtered_set = history_obj._filter_sensitive_data_from_value(data_with_set, sensitive)
+	assert '<secret>api_key</secret>' in filtered_set['active_tokens']
+	assert 'super-secret-token' not in filtered_set['active_tokens']
+
+	data_with_frozenset = {'frozen_tokens': frozenset(['super-secret-token', 'other'])}
+	filtered_frozen = history_obj._filter_sensitive_data_from_value(data_with_frozenset, sensitive)
+	assert '<secret>api_key</secret>' in filtered_frozen['frozen_tokens']
+	assert 'super-secret-token' not in filtered_frozen['frozen_tokens']
+
+
+
