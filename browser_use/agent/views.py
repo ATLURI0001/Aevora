@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal
 
@@ -526,15 +526,31 @@ class AgentHistory(BaseModel):
 		if isinstance(value, str):
 			return self._filter_sensitive_data_from_string(value, sensitive_data)
 		if isinstance(value, dict):
-			return {key: self._filter_sensitive_data_from_value(item, sensitive_data) for key, item in value.items()}
+			return {
+				(self._filter_sensitive_data_from_string(key, sensitive_data) if isinstance(key, str) else key): self._filter_sensitive_data_from_value(item, sensitive_data)
+				for key, item in value.items()
+			}
 		if isinstance(value, list):
 			return [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
 		if isinstance(value, tuple):
+			if hasattr(value, '_fields'):
+				filtered_fields = [self._filter_sensitive_data_from_value(item, sensitive_data) for item in value]
+				try:
+					return type(value)(*filtered_fields)
+				except Exception:
+					return tuple(filtered_fields)
 			return tuple(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
 		if isinstance(value, set):
 			return {self._filter_sensitive_data_from_value(item, sensitive_data) for item in value}
 		if isinstance(value, frozenset):
 			return frozenset(self._filter_sensitive_data_from_value(item, sensitive_data) for item in value)
+		if is_dataclass(value) and not isinstance(value, type):
+			field_dict = {f.name: getattr(value, f.name) for f in fields(value)}
+			filtered_dict = {k: self._filter_sensitive_data_from_value(v, sensitive_data) for k, v in field_dict.items()}
+			try:
+				return type(value)(**filtered_dict)
+			except Exception:
+				return filtered_dict
 		if isinstance(value, BaseModel):
 			dumped = value.model_dump()
 			filtered = self._filter_sensitive_data_from_value(dumped, sensitive_data)
@@ -551,7 +567,10 @@ class AgentHistory(BaseModel):
 		if not sensitive_data:
 			return data
 
-		return {key: self._filter_sensitive_data_from_value(value, sensitive_data) for key, value in data.items()}
+		return {
+			(self._filter_sensitive_data_from_string(key, sensitive_data) if isinstance(key, str) else key): self._filter_sensitive_data_from_value(value, sensitive_data)
+			for key, value in data.items()
+		}
 
 	def model_dump(self, sensitive_data: dict[str, str | dict[str, str]] | None = None, **kwargs) -> dict[str, Any]:
 		"""Custom serialization handling circular references and filtering sensitive data"""

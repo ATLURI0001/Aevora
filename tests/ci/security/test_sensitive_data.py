@@ -766,4 +766,60 @@ def test_history_filters_sensitive_data_inside_nested_basemodel():
 	assert filtered.service_name == 'auth-service'
 
 
+def test_history_filters_sensitive_data_in_dict_keys():
+	"""AgentHistory._filter_sensitive_data_from_value should redact secrets in dictionary keys."""
+	from browser_use.agent.views import AgentHistory
+	from browser_use.browser.views import BrowserStateHistory
+
+	history_obj = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+	)
+	sensitive = {'api_token': 'secret-xyz-987'}
+
+	data = {'auth_header_secret-xyz-987': 'val', 'normal_key': 'hello secret-xyz-987'}
+	filtered = history_obj._filter_sensitive_data_from_value(data, sensitive)
+	assert 'auth_header_<secret>api_token</secret>' in filtered
+	assert 'auth_header_secret-xyz-987' not in filtered
+	assert filtered['normal_key'] == 'hello <secret>api_token</secret>'
+
+
+def test_history_filters_sensitive_data_in_dataclasses_and_namedtuples():
+	"""AgentHistory._filter_sensitive_data_from_value should recursively filter dataclasses and namedtuples."""
+	from dataclasses import dataclass
+	from typing import NamedTuple
+	from browser_use.agent.views import AgentHistory
+	from browser_use.browser.views import BrowserStateHistory
+
+	@dataclass
+	class Profile:
+		token: str
+		label: str
+
+	class AuthTuple(NamedTuple):
+		secret: str
+		tag: str
+
+	history_obj = AgentHistory(
+		model_output=None,
+		result=[],
+		state=BrowserStateHistory(url='https://example.test', title='t', tabs=[], interacted_element=[None]),
+	)
+	sensitive = {'user_key': 'secret-key-443'}
+
+	prof = Profile(token='Token secret-key-443', label='admin')
+	filtered_prof = history_obj._filter_sensitive_data_from_value(prof, sensitive)
+	assert isinstance(filtered_prof, Profile)
+	assert '<secret>user_key</secret>' in filtered_prof.token
+	assert 'secret-key-443' not in filtered_prof.token
+
+	auth = AuthTuple(secret='Pass secret-key-443', tag='login')
+	filtered_auth = history_obj._filter_sensitive_data_from_value(auth, sensitive)
+	assert isinstance(filtered_auth, AuthTuple)
+	assert '<secret>user_key</secret>' in filtered_auth.secret
+	assert 'secret-key-443' not in filtered_auth.secret
+
+
+
 
